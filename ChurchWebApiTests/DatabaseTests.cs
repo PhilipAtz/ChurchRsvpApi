@@ -20,10 +20,6 @@ namespace ChurchWebApiTests
         [ClassInitialize]
         public static void Setup(TestContext context)
         {
-            var log = new Mock<ILogger<DatabaseConnector>>();
-            _encryptionLayer = new EncryptionLayer(new SampleKeyRetriever());
-            _sqlRunner = new SqliteRunner();
-
             try
             {
                 File.Delete("database.sqlite");
@@ -32,6 +28,10 @@ namespace ChurchWebApiTests
             { }
             _theDatabaseWasDeleted = !File.Exists("database.sqlite");
 
+            var log = new Mock<ILogger<DatabaseConnector>>();
+            _encryptionLayer = new EncryptionLayer(new SampleKeyRetriever());
+            var databaseCreator = new DatabaseCreator();
+            _sqlRunner = new SqliteRunner(log.Object, databaseCreator);
             _databaseConnector = new DatabaseConnector(log.Object, _encryptionLayer, _sqlRunner);
         }
 
@@ -210,9 +210,9 @@ namespace ChurchWebApiTests
                 Mobile = "123456789012345",
             };
             var encryptedPerson = person.ToEncryptedDatabasePerson(_encryptionLayer);
-            Assert.IsTrue(encryptedPerson.Name.Length < DatabaseConnector.MaxNameLength);
-            Assert.IsTrue(encryptedPerson.Email.Length < DatabaseConnector.MaxEmailLength);
-            Assert.IsTrue(encryptedPerson.Mobile.Length < DatabaseConnector.MaxMobileLength);
+            Assert.IsTrue(encryptedPerson.Name.Length < DatabaseCreator.MaxNameLength);
+            Assert.IsTrue(encryptedPerson.Email.Length < DatabaseCreator.MaxEmailLength);
+            Assert.IsTrue(encryptedPerson.Mobile.Length < DatabaseCreator.MaxMobileLength);
         }
     }
 }

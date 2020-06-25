@@ -28,6 +28,7 @@ namespace ChurchWebApi
             services.AddControllers();
             services.AddSingleton<IChurchService, ChurchService>();
             services.AddSingleton<IDatabaseConnector, DatabaseConnector>();
+            services.AddSingleton<IDatabaseCreator, DatabaseCreator>();
             services.AddSingleton<ISqlRunner, SqliteRunner>();
             services.AddSingleton<ISecureKeyRetriever, SampleKeyRetriever>();
             services.AddSingleton<IEncryptionLayer, EncryptionLayer>();

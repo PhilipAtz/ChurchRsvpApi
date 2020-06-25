@@ -2,19 +2,23 @@
 using System.Collections.Concurrent;
 using System.Data;
 using System.Data.SQLite;
+using System.IO;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 
 namespace ChurchWebApi.Services
 {
     public class SqliteRunner : ISqlRunner
     {
         private const string DatabaseFile = "database.sqlite";
+        private readonly ILogger<DatabaseConnector> _log;
         private readonly ConcurrentQueue<Task<object>> _commandQueue = new ConcurrentQueue<Task<object>>();
         private readonly Task _queueConsumer;
         private bool _disposing;
 
-        public SqliteRunner()
+        public SqliteRunner(ILogger<DatabaseConnector> logger, IDatabaseCreator databaseCreator)
         {
+            _log = logger;
             _queueConsumer = Task.Factory.StartNew(() =>
                 {
                     while (!_disposing)
@@ -23,6 +27,13 @@ namespace ChurchWebApi.Services
                     }
                 },
                 TaskCreationOptions.LongRunning);
+
+            if (File.Exists(DatabaseFile))
+                return;
+
+            _log?.LogWarning($"Could not locate database file '{DatabaseFile}', creating a new one.");
+            SQLiteConnection.CreateFile(DatabaseFile);
+            databaseCreator.CreateTables(this);
         }
 
         public void Dispose()
