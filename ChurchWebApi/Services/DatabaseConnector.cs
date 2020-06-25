@@ -37,7 +37,7 @@ namespace ChurchWebApi.Services
 
         public DatabasePerson GetDatabasePerson(Person person)
         {
-            var encryptedPerson = new DatabasePerson(person, _encryptionLayer);
+            var encryptedPerson = person.ToEncryptedDatabasePerson(_encryptionLayer);
             var sql = "select Id, Name, Email, Mobile from Person where Name = @Name";
             var parameters = new DynamicParameters();
             parameters.Add(nameof(DatabasePerson.Name), encryptedPerson.Name);
@@ -109,8 +109,8 @@ namespace ChurchWebApi.Services
                 return existingPerson.Id;
             }
 
-            var encryptedPerson = new DatabasePerson(person, _encryptionLayer);
-            return _sqlRunner.EnqueueDatabaseCommand(con => con.Insert(encryptedPerson, commandTimeout: 5));
+            var encryptedPerson = person.ToEncryptedDatabasePerson(_encryptionLayer);
+            return _sqlRunner.EnqueueDatabaseCommand(con => con.Insert(encryptedPerson));
         }
 
         public DatabaseTimeslot GetTimeslot(long timeslotId)
@@ -161,7 +161,7 @@ namespace ChurchWebApi.Services
                 return existingTimeslot.Id;
             }
 
-            return _sqlRunner.EnqueueDatabaseCommand(con => con.Insert(new DatabaseTimeslot(timeslot), commandTimeout: 5));
+            return _sqlRunner.EnqueueDatabaseCommand(con => con.Insert(timeslot.ToDatabaseTimeslot()));
         }
 
         public IEnumerable<DatabaseBooking> GetActiveBookings(DateTime startTime, DateTime endTime) =>
@@ -201,8 +201,7 @@ namespace ChurchWebApi.Services
 
             return _sqlRunner.EnqueueDatabaseCommand(con => con.ExecuteScalar<int>(
                 sql,
-                new { bookingId },
-                commandTimeout: 5)) > 0;
+                new { bookingId })) > 0;
         }
 
         public bool CreateBooking(Person person, DateTime startTime, DateTime endTime)
@@ -231,8 +230,7 @@ namespace ChurchWebApi.Services
                     personId,
                     timeslotId = timeslot.Id,
                     timestamp = DateTime.Now,
-                },
-                commandTimeout: 5));
+                }));
 
             bookings = GetActiveBookings(startTime, endTime).ToList();
             if (bookings.FindIndex(o => o.Id == bookingId) + 1 > timeslot.Capacity)

@@ -1,7 +1,11 @@
-﻿namespace ChurchWebApi.Services.DatabaseModel
+﻿using Dapper.Contrib.Extensions;
+
+namespace ChurchWebApi.Services.DatabaseModel
 {
-    public class DatabasePerson
+    [Table("Person")]
+    public class EncryptedDatabasePerson
     {
+        [Key]
         public long Id { get; set; }
         public string Name { get; set; }
         public string Email { get; set; }
