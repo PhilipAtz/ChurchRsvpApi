@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 
 namespace ChurchWebApi.Services
@@ -7,15 +8,18 @@ namespace ChurchWebApi.Services
     public class EncryptionLayer : IEncryptionLayer
 	{
 		private readonly byte[] _key;
+		private readonly byte[] _iv;
 
 		public EncryptionLayer(ISecureKeyRetriever secureKeyRetriever)
 		{
-			var key = secureKeyRetriever.RetrieveKey(nameof(EncryptionLayer));
-			if (string.IsNullOrWhiteSpace(key))
+			var key = secureKeyRetriever.RetrieveKey("EncryptionKey");
+			var iv = secureKeyRetriever.RetrieveKey("InitialisationVector");
+			if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(iv))
 			{
 				throw new ArgumentException();
 			}
 			_key = key.ToByteArray();
+			_iv = iv.ToByteArray();
 		}
 
 		public string Encrypt(string plainText)
@@ -26,11 +30,11 @@ namespace ChurchWebApi.Services
 			}
 
 			ICryptoTransform encryptor;
-			string initialisationVector;
 			using (var algorithm = new AesManaged())
 			{
+				algorithm.IV = _iv;
+
 				algorithm.Key = _key;
-				initialisationVector = algorithm.IV.ToHexString();
 				encryptor = algorithm.CreateEncryptor();
 			}
 
@@ -42,7 +46,7 @@ namespace ChurchWebApi.Services
 					{
 						swEncrypt.Write(plainText);
 					}
-					return $"{msEncrypt.ToArray().ToHexString()},{initialisationVector}";
+					return msEncrypt.ToArray().ToHexString();
 				}
 			}
 		}
@@ -54,23 +58,15 @@ namespace ChurchWebApi.Services
 				return string.Empty;
 			}
 
-			var splitValues = cipherText.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
-			if (splitValues.Length != 2 ||
-				string.IsNullOrWhiteSpace(splitValues[0]) ||
-				string.IsNullOrWhiteSpace(splitValues[1]))
-			{
-				throw new ArgumentException($"Incorect {nameof(cipherText)} format: '{cipherText}'");
-			}
-
 			ICryptoTransform decryptor;
 			using (var algorithm = new AesManaged())
 			{
 				algorithm.Key = _key;
-				algorithm.IV = splitValues[1].ToByteArray();
+				algorithm.IV = _iv;
 				decryptor = algorithm.CreateDecryptor();
 			}
 
-			using (MemoryStream msDecrypt = new MemoryStream(splitValues[0].ToByteArray()))
+			using (MemoryStream msDecrypt = new MemoryStream(cipherText.ToByteArray()))
 			{
 				using (CryptoStream csDecrypt = new CryptoStream(msDecrypt, decryptor, CryptoStreamMode.Read))
 				{

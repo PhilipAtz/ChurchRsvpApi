@@ -3,6 +3,5 @@
     public interface ISecureKeyRetriever
     {
 		string RetrieveKey(string name);
-
-	}
+    }
 }
