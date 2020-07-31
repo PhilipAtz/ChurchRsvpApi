@@ -148,7 +148,7 @@ namespace ChurchWebApiTests
                 EndTime = endTime,
                 Capacity = 10,
             };
-            var id1 = _databaseConnector.CreateTimeslot(timeslot);
+            _databaseConnector.CreateTimeslot(timeslot);
 
             var peopleWithBooking1 = people.AsParallel()
                 .Select(person => new
@@ -162,7 +162,8 @@ namespace ChurchWebApiTests
 
             Assert.AreEqual(timeslot.Capacity, peopleWithBooking1.Length);
 
-            var peopleWithBooking2 = _databaseConnector.GetActiveBookings(timeslot.StartTime, timeslot.EndTime)
+            var peopleWithBooking2 = _databaseConnector.GetBookings(timeslot.StartTime, timeslot.EndTime)
+                .Where(booking => !booking.Cancelled)
                 .Select(o => _databaseConnector.GetDatabasePerson(o.PersonId))
                 .ToArray();
 
@@ -175,6 +176,112 @@ namespace ChurchWebApiTests
                     o.Email == person.Email &&
                     o.Mobile == person.Mobile));
             }
+        }
+
+        [TestMethod]
+        public void BookingCancellationDatabaseTest()
+        {
+            var startTime = DateTime.Now.AddDays(1);
+            var endTime = startTime.AddHours(1);
+            var timeslot = new Timeslot
+            {
+                StartTime = startTime,
+                EndTime = endTime,
+                Capacity = 10,
+            };
+            var timeslotId = _databaseConnector.CreateTimeslot(timeslot);
+
+            var person = new Person { Name = "Person #1" };
+            var personId = _databaseConnector.CreatePerson(person);
+            var cancellationResult = _databaseConnector.CancelBooking(person, timeslot.StartTime, timeslot.EndTime);
+            Assert.IsFalse(cancellationResult);
+            
+            var bookingResult = _databaseConnector.CreateBooking(
+                person,
+                timeslot.StartTime,
+                timeslot.EndTime);
+            Assert.IsTrue(bookingResult);
+
+            var bookings = _databaseConnector.GetBookings(timeslot.StartTime, timeslot.EndTime);
+            Assert.IsTrue(bookings.Any(o =>
+                o.PersonId == personId &&
+                o.TimeslotId == timeslotId &&
+                !o.Cancelled));
+
+            cancellationResult = _databaseConnector.CancelBooking(person, timeslot.StartTime, timeslot.EndTime);
+            Assert.IsTrue(cancellationResult);
+            bookings = _databaseConnector.GetBookings(timeslot.StartTime, timeslot.EndTime);
+            Assert.IsFalse(bookings.Any(o =>
+                o.PersonId == personId &&
+                o.TimeslotId == timeslotId &&
+                !o.Cancelled));
+        }
+
+        [TestMethod]
+        public void BookingDeletionDatabaseTest()
+        {
+            var startTime = DateTime.Now.AddDays(1);
+            var endTime = startTime.AddHours(1);
+            var timeslot = new Timeslot
+            {
+                StartTime = startTime,
+                EndTime = endTime,
+                Capacity = 10,
+            };
+            var timeslotId = _databaseConnector.CreateTimeslot(timeslot);
+
+            var person = new Person { Name = "Person #1" };
+            var personId = _databaseConnector.CreatePerson(person);
+            var cancellationResult = _databaseConnector.CancelBooking(person, timeslot.StartTime, timeslot.EndTime);
+            Assert.IsFalse(cancellationResult);
+
+            var bookingResult = _databaseConnector.CreateBooking(
+                person,
+                timeslot.StartTime,
+                timeslot.EndTime);
+            Assert.IsTrue(bookingResult);
+
+            var booking = _databaseConnector.GetBookings(timeslot.StartTime, timeslot.EndTime)
+                .Single(booking =>
+                    booking.PersonId == personId &&
+                    booking.TimeslotId == timeslotId);
+            _databaseConnector.DeleteBooking(booking.Id);
+
+            var bookings = _databaseConnector.GetBookings(timeslot.StartTime, timeslot.EndTime);
+            Assert.IsFalse(bookings.Any(o =>
+                o.PersonId == personId &&
+                o.TimeslotId == timeslotId));
+        }
+
+        [TestMethod]
+        public void TimeslotDeletionDatabaseTest()
+        {
+            var startTime = DateTime.Now.AddDays(1);
+            var endTime = startTime.AddHours(1);
+            var timeslot = new Timeslot
+            {
+                StartTime = startTime,
+                EndTime = endTime,
+                Capacity = 10,
+            };
+            var timeslotId = _databaseConnector.CreateTimeslot(timeslot);
+
+            var person = new Person { Name = "Person #1" };
+            var personId = _databaseConnector.CreatePerson(person);
+            var cancellationResult = _databaseConnector.CancelBooking(person, timeslot.StartTime, timeslot.EndTime);
+            Assert.IsFalse(cancellationResult);
+
+            var bookingResult = _databaseConnector.CreateBooking(
+                person,
+                timeslot.StartTime,
+                timeslot.EndTime);
+            Assert.IsTrue(bookingResult);
+
+            _databaseConnector.DeleteTimeslot(timeslot.StartTime, timeslot.EndTime);
+            Assert.IsNull(_databaseConnector.GetTimeslot(timeslot.StartTime, timeslot.EndTime));
+
+            var bookings = _databaseConnector.GetBookings(timeslot.StartTime, timeslot.EndTime);
+            Assert.IsFalse(bookings.Any());
         }
 
         [TestMethod]

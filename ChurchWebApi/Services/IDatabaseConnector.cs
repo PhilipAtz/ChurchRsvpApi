@@ -13,11 +13,13 @@ namespace ChurchWebApi.Services
         DatabaseTimeslot GetTimeslot(long timeslotId);
         DatabaseTimeslot GetTimeslot(DateTime startTime, DateTime endTime);
         long CreateTimeslot(Timeslot timeslot);
-        IEnumerable<DatabaseBooking> GetActiveBookings(DateTime startTime, DateTime endTime);
-        IEnumerable<DatabaseBooking> GetActiveBookings(long timeslotId);
-        IEnumerable<DatabaseBooking> GetActiveBookings(DatabaseTimeslot timeslot);
+        IEnumerable<DatabaseBooking> GetBookings(DateTime startTime, DateTime endTime);
+        IEnumerable<DatabaseBooking> GetBookings(long timeslotId);
+        IEnumerable<DatabaseBooking> GetBookings(DatabaseTimeslot timeslot);
         bool TimeslotIsFull(DateTime startTime, DateTime endTime);
-        bool DeleteBookingByRowId(long bookingId);
+        bool DeleteTimeslot(DateTime startTime, DateTime endTime);
+        bool DeleteBooking(long bookingId);
         bool CreateBooking(Person person, DateTime startTime, DateTime endTime);
+        bool CancelBooking(Person person, DateTime startTime, DateTime endTime);
     }
 }

@@ -1,8 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data.SQLite;
-using System.IO;
 using System.Linq;
+using System.Text;
 using ChurchWebApi.Services.AppModel;
 using ChurchWebApi.Services.DatabaseModel;
 using Dapper;
@@ -24,48 +23,65 @@ namespace ChurchWebApi.Services
             _sqlRunner = sqlRunner;
         }
 
-        public DatabasePerson GetDatabasePerson(Person person)
+        private string GetConditionForPerson(Person person, string tablePrefix = null)
+        {
+            tablePrefix = string.IsNullOrWhiteSpace(tablePrefix)
+                ? string.Empty
+                : $"{tablePrefix.TrimEnd('.')}.";
+            var condition = new StringBuilder($"{tablePrefix}Name = @Name");
+            
+            condition.Append(string.IsNullOrWhiteSpace(person.Email)
+                ? $" and {tablePrefix}Email is null"
+                : $" and {tablePrefix}Email = @Email");
+
+            condition.Append(string.IsNullOrWhiteSpace(person.Mobile)
+                ? $" and {tablePrefix}Mobile is null"
+                : $" and {tablePrefix}Mobile = @Mobile");
+
+            return condition.ToString();
+        }
+
+        private DynamicParameters GetParametersForPerson(Person person)
         {
             var encryptedPerson = person.ToEncryptedDatabasePerson(_encryptionLayer);
-            var sql = "select Id, Name, Email, Mobile from Person where Name = @Name";
             var parameters = new DynamicParameters();
             parameters.Add(nameof(DatabasePerson.Name), encryptedPerson.Name);
 
-            if (string.IsNullOrWhiteSpace(person.Email))
+            if (!string.IsNullOrWhiteSpace(person.Email))
             {
-                sql += " and Email is null";
-            }
-            else
-            {
-                sql += " and Email = @Email";
                 parameters.Add(nameof(DatabasePerson.Email), encryptedPerson.Email);
             }
-            if (string.IsNullOrWhiteSpace(person.Mobile))
+
+            if (!string.IsNullOrWhiteSpace(person.Mobile))
             {
-                sql += " and Mobile is null";
-            }
-            else
-            {
-                sql += " and Mobile = @Mobile";
                 parameters.Add(nameof(DatabasePerson.Mobile), encryptedPerson.Mobile);
             }
+
+            return parameters;
+        }
+
+        public DatabasePerson GetDatabasePerson(Person person)
+        {
+            var sql = $"select Id, Name, Email, Mobile from Person where {GetConditionForPerson(person)}";
+            var parameters = GetParametersForPerson(person);
 
             return _sqlRunner.EnqueueDatabaseCommand(
                 con => con.Query<(long Id, string Name, string Email, string Mobile)>(
                     sql,
                     parameters))
-                .Select(o => new DatabasePerson
+                .Select(o => new EncryptedDatabasePerson
                 {
                     Id = o.Id,
-                    Name = _encryptionLayer.Decrypt(o.Name),
+                    Name = o.Name,
                     Email = string.IsNullOrWhiteSpace(o.Email)
                         ? null
-                        : _encryptionLayer.Decrypt(o.Email),
+                        : o.Email,
                     Mobile = string.IsNullOrWhiteSpace(o.Mobile)
                         ? null
-                        : _encryptionLayer.Decrypt(o.Mobile),
+                        : o.Mobile,
                 })
-                .FirstOrDefault();
+                .FirstOrDefault()
+                ?.ToDatabasePerson(_encryptionLayer);
         }
 
         public DatabasePerson GetDatabasePerson(long personId)
@@ -117,7 +133,7 @@ namespace ChurchWebApi.Services
                     EndTime = o.EndTime,
                     Capacity = o.Capacity,
                 })
-                .Single();
+                .SingleOrDefault();
         }
 
         public DatabaseTimeslot GetTimeslot(DateTime startTime, DateTime endTime)
@@ -153,15 +169,20 @@ namespace ChurchWebApi.Services
             return _sqlRunner.EnqueueDatabaseCommand(con => con.Insert(timeslot.ToDatabaseTimeslot()));
         }
 
-        public IEnumerable<DatabaseBooking> GetActiveBookings(DateTime startTime, DateTime endTime) =>
-            GetActiveBookings(GetTimeslot(startTime, endTime));
+        public IEnumerable<DatabaseBooking> GetBookings(DateTime startTime, DateTime endTime) =>
+            GetBookings(GetTimeslot(startTime, endTime));
 
-        public IEnumerable<DatabaseBooking> GetActiveBookings(long timeslotId) =>
-            GetActiveBookings(GetTimeslot(timeslotId));
+        public IEnumerable<DatabaseBooking> GetBookings(long timeslotId) =>
+            GetBookings(GetTimeslot(timeslotId));
 
-        public IEnumerable<DatabaseBooking> GetActiveBookings(DatabaseTimeslot timeslot)
+        public IEnumerable<DatabaseBooking> GetBookings(DatabaseTimeslot timeslot)
         {
-            const string sql = "select Id as BookingId, PersonId, TimeslotId, Timestamp, Cancelled from Booking where Cancelled = 0 and TimeslotId = @timeslotId order by Timestamp asc";
+            if (timeslot == null)
+            {
+                return Array.Empty<DatabaseBooking>();
+            }
+
+            const string sql = "select Id as BookingId, PersonId, TimeslotId, Timestamp, Cancelled from Booking where TimeslotId = @timeslotId order by Timestamp asc";
 
             return _sqlRunner.EnqueueDatabaseCommand(con => con.Query<(long BookingId, long PersonId, long TimeslotId, DateTime Timestamp, bool Cancelled)>(
                     sql,
@@ -179,10 +200,33 @@ namespace ChurchWebApi.Services
         public bool TimeslotIsFull(DateTime startTime, DateTime endTime)
         {
             var timeslot = GetTimeslot(startTime, endTime);
-            return GetActiveBookings(startTime, endTime).Count() >= timeslot.Capacity;
+            return GetBookings(startTime, endTime).Where(booking => !booking.Cancelled).Count() >= timeslot.Capacity;
         }
 
-        public bool DeleteBookingByRowId(long bookingId)
+        public bool DeleteTimeslot(DateTime startTime, DateTime endTime)
+        {
+            var timeslot = GetTimeslot(startTime, endTime);
+            if (timeslot == null)
+            {
+                return false;
+            }
+
+            var bookings = GetBookings(timeslot);
+            foreach(var bookingId in bookings.Select(booking => booking.Id))
+            {
+                DeleteBooking(bookingId);
+            }
+
+            const string sql =
+                @"delete from Timeslot where Id = @timeslotId;
+                  select changes()";
+
+            return _sqlRunner.EnqueueDatabaseCommand(con => con.ExecuteScalar<int>(
+                sql,
+                new { timeslotId = timeslot.Id })) > 0;
+        }
+
+        public bool DeleteBooking(long bookingId)
         {
             const string sql = 
                 @"delete from Booking where Id = @bookingId;
@@ -193,11 +237,42 @@ namespace ChurchWebApi.Services
                 new { bookingId })) > 0;
         }
 
+        public bool CancelBooking(Person person, DateTime startTime, DateTime endTime)
+        {
+            var personId = GetDatabasePerson(person)?.Id;
+            var timeslotId = GetTimeslot(startTime, endTime)?.Id;
+
+            if (!personId.HasValue || !timeslotId.HasValue)
+            {
+                return false;
+            }
+
+            var sql =
+                @"update Booking
+                  set Cancelled = 1
+                  where PersonId = @personId and
+                        TimeslotId = @timeslotId;
+                  select changes()";
+
+            return _sqlRunner.EnqueueDatabaseCommand(con => con.ExecuteScalar<int>(
+                sql,
+                new
+                {
+                    personId,
+                    timeslotId,
+                }) > 0);
+        }
+
         public bool CreateBooking(Person person, DateTime startTime, DateTime endTime)
         {
             var timeslot = GetTimeslot(startTime, endTime);
-            var bookings = GetActiveBookings(startTime, endTime).ToList();
-            if (bookings.Count > timeslot.Capacity)
+            if (timeslot == null)
+            {
+                return false;
+            }
+
+            var bookings = GetBookings(startTime, endTime).ToList();
+            if (bookings.Where(booking => !booking.Cancelled).Count() > timeslot.Capacity)
             {
                 return false;
             }
@@ -221,10 +296,10 @@ namespace ChurchWebApi.Services
                     timestamp = DateTime.Now,
                 }));
 
-            bookings = GetActiveBookings(startTime, endTime).ToList();
+            bookings = GetBookings(startTime, endTime).Where(booking => !booking.Cancelled).ToList();
             if (bookings.FindIndex(o => o.Id == bookingId) + 1 > timeslot.Capacity)
             {
-                DeleteBookingByRowId(bookingId);
+                DeleteBooking(bookingId);
                 return false;
             }
 
